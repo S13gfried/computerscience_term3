@@ -40,6 +40,7 @@ int getsize(int fd);
 char* loadfile(int fd, int size);
 int traverse(struct dtree* root, int func(struct dtree* root));
 
+pid_t launch(char* command);
 char* getfullpath(struct dtree* targetnode, char* buffer);
 int createroster(struct dtree* targetnode);
 int appenddirs(struct dtree* targetnode);
@@ -51,6 +52,9 @@ int main()
     //get table
     //find dirs
 //compare dates/absence with old roster
+
+struct dtree root = {};
+generatetree(&root);
 
     return 0;
 }
@@ -81,7 +85,7 @@ char* gotoword(char* src, int row, int col)
 
     for(; rowc < row; index++)
     {
-        if(src[index] = '\0')
+        if(src[index] == '\0')
             return (src + index); //out-of-range case
 
         if(src[index] == '\n')
@@ -90,7 +94,7 @@ char* gotoword(char* src, int row, int col)
 
     for(; colc < col; index++)
     {
-        if((src[index] == '\0') || (src[index] == ' '))
+        if((src[index] == '\0') || (src[index] == '\n'))
             return (src + index); //out-of-range case
 
         if(src[index] == ' ')
@@ -207,9 +211,10 @@ int createroster(struct dtree* targetnode)
     strcat(command, buf);
     strcat(command, " > ");
     strcat(command, buf);
-    strcat(command, ROSTER_PATH);
+    strcat(command, ROSTER_PATH); //build command
 
-    execl("/bin/bash", "bash", "-c", command, NULL);
+    launch(command); //run via bash
+
     return 0;
 }
 
@@ -235,7 +240,7 @@ int appenddirs(struct dtree* targetnode)
 
     for(int i = 0; i < entries; i++) //init branches
     {
-        char* nameptr = gotoword(roster, i, 8);
+        char* nameptr = gotoword(roster, i + 1, 8); // 0 is "total X"
 
         if(strcom(nameptr, ROSTER_PATH, strlen(ROSTER_PATH) + 1)) 
             continue; //do not include the roster file itself
@@ -243,14 +248,14 @@ int appenddirs(struct dtree* targetnode)
         for(int k = 0; (nameptr[k] != '\n') && (nameptr[k] != '\0'); k++) 
             targetnode->branch[i].name[k] = nameptr[k]; //set name
 
-        char* timeptr = gotoword(roster, i, 5);
+        char* timeptr = gotoword(roster, i + 1, 5);
         strmov(targetnode->branch[i].date, timeptr, TIMESTAMP_LENGTH); //set timestamps
 
 
         targetnode->branch[i].root = targetnode; //set root
 
         
-        if(*gotoword(roster, i, 0) == 'd') //assign 0 to "branches" for directories and -1 for non-directories
+        if(*gotoword(roster, i + 1, 0) == 'd') //assign 0 to "branches" for directories and -1 for non-directories
             {
             targetnode->branch[i].branches = 0;
             directories++;
@@ -267,11 +272,38 @@ int appenddirs(struct dtree* targetnode)
 int generatetree(struct dtree* root)
 {
     int dirs = 1;
+    printf("processing %s\n", root->name); //nig
     createroster(root);
+
+    //~
+    char path[MAX_NAME_LENGTH * (MAX_TREE_DEPTH + 2) + 1] = {};
+    getfullpath(root, path);
+    strcat(path, ROSTER_PATH);
+
+    int filecheck;
+    while((filecheck = open(path, O_RDONLY | 0666)) < 0); //wait for file to be created 
+    char sample;
+    while(read(filecheck, &sample, 1) == 0); //wait for characters to appear in file 
+    close(filecheck);
+    //~
     appenddirs(root); //init roster and next layer
 
     for(int i = 0; i < root->branches; i++)
+    {
+        printf("%d\n", root->branch[i].branches); //nig
         if(root->branch[i].branches == 0)
-            dirs += generatetree(&(root->branch[i]));
+            dirs += generatetree(&(root->branch[i])), printf("found 1\n"); //nig
+    }
     return dirs;
+}
+
+pid_t launch(char* command)
+{
+    pid_t parent = fork();
+
+    if(parent) //self-explanatory
+        return parent;
+    
+    execl("/bin/bash", "bash", "-c", command, NULL); //child
+    return 0;
 }
